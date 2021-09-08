@@ -24,14 +24,14 @@ class Model(nn.Module):
     def __init__(self):
         super(Model, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(88 + 3, 256),
-            nn.Tanh(),
-            nn.Linear(256, 256),
-            nn.Tanh(),
-            nn.Linear(256, 27),
-            nn.Tanh()
+            nn.Linear(88 + 3, 128),
+            # nn.Tanh(),
+            nn.Linear(128, 128),
+            # nn.Tanh(),
+            nn.Linear(128, 27),
+            # nn.Tanh()
         )
-        self.model.apply(init_weight)
+        # self.model.apply(init_weight)
     
     def forward(self, x):
         return self.model(x)
@@ -41,14 +41,19 @@ def train(features, labels, clicks, batch_size = 100):
     loss_func = nn.MSELoss()
     batch_num = (len(clicks) + batch_size - 1) // batch_size
     for epoch in range(1000):
-        idx = np.random.permutation(N)
+        # idx = np.random.permutation(N)
+        idx = range(N)
         total_loss = 0
         for i in range(batch_num):
             batch_idx = idx[i*batch_size:(i+1)*batch_size]
             m_features, m_labels, m_clicks = features[batch_idx], labels[batch_idx], clicks[batch_idx]
             y_labels = model(m_features) # predict the labels from the features
+
             # loss function. note that the loss naturally does not count the instances with zero clicks
-            loss = torch.mean(m_clicks * ((y_labels - m_labels) ** 2).sum(1)) 
+            loss = torch.mean(m_clicks * ((y_labels - m_labels) ** 2).sum(1))
+            # loss = torch.mean(((y_labels - m_labels) ** 2).sum(1))
+
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
