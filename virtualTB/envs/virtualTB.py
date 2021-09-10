@@ -13,11 +13,11 @@ from virtualTB.utils import *
 class VirtualTB(gym.Env):
     metadata = {'render.modes': ['human']}
 
-    def __init__(self):
-        self.n_item = 5
+    def __init__(self, num_leave_compute=5, leave_threshold=4.5):
+        # self.n_item = 5
         self.n_user_feature = 88  # categorical features
         self.n_item_feature = 27  # continue features
-        self.max_c = 100
+        self.max_c = 99
         self.obs_low = np.concatenate(([0] * self.n_user_feature, [0, 0, 0]))
         self.obs_high = np.concatenate(([1] * self.n_user_feature, [29, 9, 100]))
         self.observation_space = spaces.Box(low=self.obs_low, high=self.obs_high, dtype=np.int32)
@@ -29,6 +29,10 @@ class VirtualTB(gym.Env):
         self.user_leave_model = LeaveModel()
         self.user_leave_model.load()
         self.static = False
+
+        self.num_leave_compute = num_leave_compute
+        self.leave_threshold = leave_threshold
+
         self.reset()
 
     def set_state_mode(self, is_static=False):
@@ -61,22 +65,39 @@ class VirtualTB(gym.Env):
     def __user_generator(self):
         # with shape(n_user_feature,)
         user = self.user_model.generate()
+
         self.__leave = self.user_leave_model.predict(user)
+        # self.__leave = 100
+
         return user
+
 
     def step(self, action):
         # Action: tensor with shape (27, )
         self.action = action
+        t = self.total_c
+        done = self._determine_whether_to_leave(t, action)
+        if t >= self.max_c:
+            done = True
+
+        self._add_action_to_history(t, action)
+
         self.lst_action = self.user_action_model.predict(FLOAT(self.cur_user).unsqueeze(0), FLOAT([[self.total_c]]),
                                                          FLOAT(action).unsqueeze(0)).detach().numpy()[0]
         reward = int(self.lst_action[0])
+
+
+
+
         self.total_a += reward
         self.total_c += 1
         self.rend_action = deepcopy(self.lst_action)
-        done = bool(self.total_c >= self.__leave)
+
+
         if done:
             self.cur_user = self.__user_generator().squeeze().detach().numpy()
             self.lst_action = FLOAT([0, 0])
+
         return self.state, reward, done, {'CTR': self.total_a / self.total_c / 10}
 
     def reset(self):
@@ -87,6 +108,9 @@ class VirtualTB(gym.Env):
         self.rend_action = deepcopy(self.lst_action)
 
         self.action = None  # Add by Chongming
+        self._reset_history()
+
+
         return self.state
 
     def render(self, mode='human', close=False):
@@ -97,3 +121,29 @@ class VirtualTB(gym.Env):
         print('\tclick:%2d, leave:%s, index:%2d' % (
         int(a), 'True' if self.total_c > self.max_c else 'False', int(self.total_c)))
         print('Total clicks:', self.total_a)
+
+
+
+    def _determine_whether_to_leave(self, t, action):
+        for t_l in range(t-1, max(-1, t-self.num_leave_compute), -1):
+            action_l = self.history_action[t_l]
+            distance_l = self._compute_action_distance(action, action_l)
+
+            if distance_l <= self.leave_threshold:
+                return True
+        return False
+
+
+    def _compute_action_distance(self, a1, a2):
+        dist = np.linalg.norm(a1 - a2)
+        return dist
+
+    def _reset_history(self):
+        self.history_action = {}
+        self.max_history = 0
+
+    def _add_action_to_history(self, t, action):
+        self.history_action[t] = action
+
+        assert self.max_history == t
+        self.max_history += 1
